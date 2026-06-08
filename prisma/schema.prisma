@@ -1,0 +1,400 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  CHEF
+  WAITER
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  OUT_OF_SERVICE
+}
+
+enum DiningSessionStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderStatus {
+  ORDER_PLACED
+  PREPARING
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderItemStatus {
+  PREPARING
+  READY
+  DELIVERED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum WaiterStatus {
+  IDLE
+  ENGAGED
+  OFFLINE
+}
+
+enum ComplaintStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model Branch {
+  id                String @id @default(uuid())
+  code              String @unique
+  name              String
+  address           String?
+  latitude          Decimal? @db.Decimal(10, 7)
+  longitude         Decimal? @db.Decimal(10, 7)
+  isActive          Boolean @default(true)
+  tables            RestaurantTable[]
+  categories        MenuCategory[]
+  menuItems         MenuItem[]
+  sessions          DiningSession[]
+  staff             StaffAssignment[]
+  taxes             TaxConfiguration[]
+  offers            Offer[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  @@map("branches")
+}
+
+model User {
+  id           String @id @default(uuid())
+  firstName    String
+  lastName     String?
+  email        String? @unique
+  phone        String? @unique
+  passwordHash String
+  role         UserRole
+  isActive     Boolean @default(true)
+  assignments  StaffAssignment[]
+  orders       Order[]
+  tips         Tip[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+  @@map("users")
+}
+
+model StaffAssignment {
+  id             String @id @default(uuid())
+  userId         String
+  branchId       String
+  waiterStatus   WaiterStatus?
+  activeOrders   Int @default(0)
+  lastIdleAt     DateTime?
+  lastAssignedAt DateTime?
+  user           User @relation(fields: [userId], references: [id])
+  branch         Branch @relation(fields: [branchId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  @@unique([userId, branchId])
+  @@index([branchId, waiterStatus, activeOrders])
+  @@map("staff_assignments")
+}
+
+model RestaurantTable {
+  id          String @id @default(uuid())
+  branchId    String
+  tableNumber Int
+  qrToken     String @unique
+  status      TableStatus @default(AVAILABLE)
+  branch      Branch @relation(fields: [branchId], references: [id])
+  sessions    DiningSession[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  @@unique([branchId, tableNumber])
+  @@index([branchId])
+  @@map("tables")
+}
+
+model DiningSession {
+  id           String @id @default(uuid())
+  branchId     String
+  tableId      String
+  sessionToken String @unique
+  status       DiningSessionStatus @default(ACTIVE)
+  startedAt    DateTime @default(now())
+  lastActiveAt DateTime @default(now())
+  endedAt      DateTime?
+  totalSpend   Decimal @default(0) @db.Decimal(10, 2)
+  branch       Branch @relation(fields: [branchId], references: [id])
+  table        RestaurantTable @relation(fields: [tableId], references: [id])
+  orders       Order[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([tableId, status])
+  @@index([sessionToken])
+  @@map("dining_sessions")
+}
+
+model MenuCategory {
+  id           String @id @default(uuid())
+  branchId     String
+  name         String
+  displayOrder Int @default(0)
+  isActive     Boolean @default(true)
+  branch       Branch @relation(fields: [branchId], references: [id])
+  items        MenuItem[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+  @@unique([branchId, name])
+  @@index([branchId, displayOrder])
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id          String @id @default(uuid())
+  branchId    String
+  categoryId  String
+  name        String
+  description String?
+  imageUrl    String?
+  basePrice   Decimal @db.Decimal(10, 2)
+  isAvailable Boolean @default(true)
+  displayOrder Int @default(0)
+  branch      Branch @relation(fields: [branchId], references: [id])
+  category    MenuCategory @relation(fields: [categoryId], references: [id])
+  variants    MenuItemVariant[]
+  addonGroups MenuItemAddonGroup[]
+  orderItems  OrderItem[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  @@index([branchId, isAvailable])
+  @@index([categoryId, displayOrder])
+  @@map("menu_items")
+}
+
+model MenuItemVariant {
+  id          String @id @default(uuid())
+  menuItemId  String
+  name        String
+  price       Decimal @db.Decimal(10, 2)
+  isAvailable Boolean @default(true)
+  menuItem    MenuItem @relation(fields: [menuItemId], references: [id])
+  orderItems  OrderItem[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@unique([menuItemId, name])
+  @@index([menuItemId])
+  @@map("menu_item_variants")
+}
+
+model MenuItemAddonGroup {
+  id           String @id @default(uuid())
+  menuItemId   String
+  name         String
+  isRequired   Boolean @default(false)
+  minSelection Int @default(0)
+  maxSelection Int @default(1)
+  displayOrder Int @default(0)
+  menuItem     MenuItem @relation(fields: [menuItemId], references: [id])
+  addons       MenuItemAddon[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([menuItemId])
+  @@map("menu_item_addon_groups")
+}
+
+model MenuItemAddon {
+  id           String @id @default(uuid())
+  addonGroupId String
+  name         String
+  price        Decimal @db.Decimal(10, 2)
+  isAvailable  Boolean @default(true)
+  addonGroup   MenuItemAddonGroup @relation(fields: [addonGroupId], references: [id])
+  orderAddons  OrderItemAddon[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([addonGroupId])
+  @@map("menu_item_addons")
+}
+
+model TaxConfiguration {
+  id         String @id @default(uuid())
+  branchId   String?
+  name       String
+  percentage Decimal @db.Decimal(5, 2)
+  isActive   Boolean @default(true)
+  validFrom  DateTime @default(now())
+  validUntil DateTime?
+  branch     Branch? @relation(fields: [branchId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  @@index([branchId, isActive, validFrom])
+  @@map("tax_configurations")
+}
+
+model Order {
+  id                 String @id @default(uuid())
+  diningSessionId    String
+  waiterId           String?
+  orderNumber        String @unique
+  status             OrderStatus @default(ORDER_PLACED)
+  subtotalAmount     Decimal @db.Decimal(10, 2)
+  taxPercentage      Decimal @db.Decimal(5, 2)
+  taxAmount          Decimal @db.Decimal(10, 2)
+  totalAmount        Decimal @db.Decimal(10, 2)
+  preparingStartedAt DateTime?
+  completedAt        DateTime?
+  diningSession      DiningSession @relation(fields: [diningSessionId], references: [id])
+  waiter             User? @relation(fields: [waiterId], references: [id])
+  items              OrderItem[]
+  payments           Payment[]
+  ratings            Rating[]
+  complaints         Complaint[]
+  tips               Tip[]
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  deletedAt          DateTime?
+  @@index([diningSessionId])
+  @@index([waiterId, status])
+  @@index([status, createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String @id @default(uuid())
+  orderId      String
+  menuItemId   String
+  variantId    String?
+  itemName     String
+  variantName  String?
+  quantity     Int
+  unitPrice    Decimal @db.Decimal(10, 2)
+  lineTotal    Decimal @db.Decimal(10, 2)
+  status       OrderItemStatus @default(PREPARING)
+  readyAt      DateTime?
+  deliveredAt  DateTime?
+  order        Order @relation(fields: [orderId], references: [id])
+  menuItem     MenuItem @relation(fields: [menuItemId], references: [id])
+  variant      MenuItemVariant? @relation(fields: [variantId], references: [id])
+  addons       OrderItemAddon[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([orderId])
+  @@index([status])
+  @@map("order_items")
+}
+
+model OrderItemAddon {
+  id          String @id @default(uuid())
+  orderItemId String
+  addonId     String
+  addonName   String
+  addonPrice  Decimal @db.Decimal(10, 2)
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id])
+  addon       MenuItemAddon @relation(fields: [addonId], references: [id])
+  createdAt   DateTime @default(now())
+  @@index([orderItemId])
+  @@map("order_item_addons")
+}
+
+model Payment {
+  id                String @id @default(uuid())
+  orderId           String
+  provider          String
+  providerReference String @unique
+  amount            Decimal @db.Decimal(10, 2)
+  status            PaymentStatus
+  paidAt            DateTime?
+  order             Order @relation(fields: [orderId], references: [id])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  @@index([orderId, status])
+  @@map("payments")
+}
+
+model Rating {
+  id        String @id @default(uuid())
+  orderId   String
+  rating    Int
+  feedback  String?
+  order     Order @relation(fields: [orderId], references: [id])
+  createdAt DateTime @default(now())
+  @@unique([orderId])
+  @@map("ratings")
+}
+
+model Complaint {
+  id          String @id @default(uuid())
+  orderId     String
+  category    String
+  description String
+  status      ComplaintStatus @default(OPEN)
+  order       Order @relation(fields: [orderId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([orderId])
+  @@index([status])
+  @@map("complaints")
+}
+
+model Tip {
+  id        String @id @default(uuid())
+  orderId   String
+  waiterId  String
+  amount    Decimal @db.Decimal(10, 2)
+  order     Order @relation(fields: [orderId], references: [id])
+  waiter    User @relation(fields: [waiterId], references: [id])
+  createdAt DateTime @default(now())
+  @@index([orderId])
+  @@index([waiterId])
+  @@map("tips")
+}
+
+model Offer {
+  id                 String @id @default(uuid())
+  branchId           String
+  title              String
+  description        String?
+  discountPercentage Decimal @db.Decimal(5, 2)
+  validFrom          DateTime
+  validTo            DateTime
+  isActive           Boolean @default(true)
+  branch             Branch @relation(fields: [branchId], references: [id])
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  deletedAt          DateTime?
+  @@index([branchId, isActive, validFrom, validTo])
+  @@map("offers")
+}
+
+model AuditLog {
+  id           String @id @default(uuid())
+  actorId      String?
+  action       String
+  resourceType String
+  resourceId   String
+  metadata     Json?
+  ipAddress    String?
+  createdAt    DateTime @default(now())
+  @@index([actorId])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}
