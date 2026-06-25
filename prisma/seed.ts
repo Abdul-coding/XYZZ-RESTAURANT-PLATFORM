@@ -1,10 +1,20 @@
+import 'dotenv/config';
+import { PrismaPg } from '@prisma/adapter-pg';
 import {
   PrismaClient, UserRole, WaiterStatus,
-} from '@prisma/client';
-import bcrypt from 'bcrypt';
+} from '../src/generated/prisma/client';
+import { buildDatabaseUrl } from '../src/database/database.config';
+import { hash } from 'bcrypt';
 import { randomBytes } from 'crypto';
 
-const prisma = new PrismaClient();
+const url = buildDatabaseUrl();
+if (!url) {
+  throw new Error('DATABASE_URL is not configured');
+}
+
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: url }),
+});
 
 async function main() {
   const branch = await prisma.branch.upsert({
@@ -12,7 +22,7 @@ async function main() {
     update: {},
     create: { code: 'XYZZ-DEMO', name: 'XYZZ Demo Branch', address: 'Demo Address' },
   });
-  const passwordHash = await bcrypt.hash('ChangeMe123!', 12);
+  const passwordHash = await hash('ChangeMe123!', 12);
   const admin = await prisma.user.upsert({
     where: { email: 'admin@xyzz.local' },
     update: {},

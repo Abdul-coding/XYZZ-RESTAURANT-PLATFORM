@@ -1,4 +1,4 @@
-import { Decimal } from '@prisma/client/runtime/library';
+import { Decimal } from '@prisma/client-runtime-utils';
 
 describe('pricing arithmetic', () => {
   it('uses decimal arithmetic for GST', () => {

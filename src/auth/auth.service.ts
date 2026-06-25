@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import bcrypt from 'bcrypt';
+import { compare } from 'bcrypt';
 import { PrismaService } from '../database/prisma.service';
 import { LoginDto } from './auth.dto';
 
@@ -15,7 +15,7 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (!user || !user.isActive || !(await bcrypt.compare(dto.password, user.passwordHash))) {
+    if (!user || !user.isActive || !(await compare(dto.password, user.passwordHash))) {
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Invalid credentials' });
     }
     const payload = { sub: user.id, role: user.role };

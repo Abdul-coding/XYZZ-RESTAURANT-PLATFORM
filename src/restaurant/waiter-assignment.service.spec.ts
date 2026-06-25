@@ -1,4 +1,4 @@
-import { WaiterStatus } from '@prisma/client';
+import { WaiterStatus } from '../generated/prisma/client';
 import { WaiterAssignmentService } from './waiter-assignment.service';
 
 describe('WaiterAssignmentService', () => {

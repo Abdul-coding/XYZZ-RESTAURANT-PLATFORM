@@ -6,8 +6,9 @@ import { ConfigService } from '@nestjs/config';
 import {
   DiningSessionStatus, OrderItemStatus, OrderStatus, PaymentStatus,
   Prisma, TableStatus, UserRole, WaiterStatus,
-} from '@prisma/client';
-import bcrypt from 'bcrypt';
+} from '../generated/prisma/client';
+import { Decimal, PrismaClientKnownRequestError } from '@prisma/client-runtime-utils';
+import { hash } from 'bcrypt';
 import { randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
 import {
@@ -19,7 +20,7 @@ import { AuditLogService } from './audit-log.service';
 import { EVENT_PUBLISHER, EventPublisher } from './event-publisher';
 import { WaiterAssignmentService } from './waiter-assignment.service';
 
-const money = (value: Prisma.Decimal.Value) => new Prisma.Decimal(value).toDecimalPlaces(2);
+const money = (value: Decimal.Value) => new Decimal(value).toDecimalPlaces(2);
 
 @Injectable()
 export class RestaurantService {
@@ -223,69 +224,82 @@ export class RestaurantService {
     const session = await this.requireSession(dto.diningSessionId, token);
     if (session.branchId !== dto.branchId) throw new BadRequestException('Branch/session mismatch');
     this.verifyPayment(dto.paymentReference);
-    const existing = await this.prisma.payment.findUnique({
-      where: { providerReference: dto.paymentReference },
-    });
-    if (existing) throw new ConflictException({ code: 'PAYMENT_ALREADY_PROCESSED', message: 'Payment already processed' });
     const cart = await this.calculateCart(dto);
     const order = await this.prisma.$transaction(async (tx) => {
-      const waiter = await this.waiterAssignment.assignWaiter(session.branchId, tx);
-      const created = await tx.order.create({
-        data: {
-          diningSessionId: session.id,
-          waiterId: waiter?.userId,
-          orderNumber: `ORD-${Date.now()}-${randomUUID().slice(0, 6).toUpperCase()}`,
-          subtotalAmount: cart.subtotal,
-          taxPercentage: cart.taxPercentage,
-          taxAmount: cart.taxAmount,
-          totalAmount: cart.total,
-          items: {
-            create: cart.lines.map((line) => ({
-              menuItemId: line.item.id,
-              variantId: line.variant?.id,
-              itemName: line.item.name,
-              variantName: line.variant?.name,
-              quantity: line.requested.quantity,
-              unitPrice: line.unitPrice,
-              lineTotal: line.lineTotal,
-              addons: {
-                create: line.addons.map((addon) => ({
-                  addonId: addon.id, addonName: addon.name, addonPrice: addon.price,
-                })),
+      try {
+        const waiter = await this.waiterAssignment.assignWaiter(session.branchId, tx);
+        const created = await tx.order.create({
+          data: {
+            diningSessionId: session.id,
+            waiterId: waiter?.userId,
+            orderNumber: `ORD-${Date.now()}-${randomUUID().slice(0, 6).toUpperCase()}`,
+            subtotalAmount: cart.subtotal,
+            taxPercentage: cart.taxPercentage,
+            taxAmount: cart.taxAmount,
+            totalAmount: cart.total,
+            items: {
+              create: cart.lines.map((line) => ({
+                menuItemId: line.item.id,
+                variantId: line.variant?.id,
+                itemName: line.item.name,
+                variantName: line.variant?.name,
+                quantity: line.requested.quantity,
+                unitPrice: line.unitPrice,
+                lineTotal: line.lineTotal,
+                addons: {
+                  create: line.addons.map((addon) => ({
+                    addonId: addon.id, addonName: addon.name, addonPrice: addon.price,
+                  })),
+                },
+              })),
+            },
+            payments: {
+              create: {
+                provider: dto.provider ?? 'DEMO',
+                providerReference: dto.paymentReference,
+                amount: cart.total,
+                status: PaymentStatus.SUCCESS,
+                paidAt: new Date(),
               },
-            })),
-          },
-          payments: {
-            create: {
-              provider: dto.provider ?? 'DEMO',
-              providerReference: dto.paymentReference,
-              amount: cart.total,
-              status: PaymentStatus.SUCCESS,
-              paidAt: new Date(),
             },
           },
-        },
-        include: { items: { include: { addons: true } }, payments: true },
-      });
-      await tx.diningSession.update({
-        where: { id: session.id }, data: { totalSpend: { increment: cart.total } },
-      });
-      await this.audit.record({
-        action: 'ORDER_CREATED',
-        resourceType: 'Order',
-        resourceId: created.id,
-        metadata: {
-          diningSessionId: session.id,
-          waiterId: waiter?.userId ?? null,
-          totalAmount: created.totalAmount.toString(),
-        },
-      }, tx);
-      return created;
+          include: { items: { include: { addons: true } }, payments: true },
+        });
+        await tx.diningSession.update({
+          where: { id: session.id }, data: { totalSpend: { increment: cart.total } },
+        });
+        await this.audit.record({
+          action: 'ORDER_CREATED',
+          resourceType: 'Order',
+          resourceId: created.id,
+          metadata: {
+            diningSessionId: session.id,
+            waiterId: waiter?.userId ?? null,
+            totalAmount: created.totalAmount.toString(),
+          },
+        }, tx);
+        return created;
+      } catch (error) {
+        if (this.isProviderReferenceConflict(error)) {
+          throw new ConflictException({
+            code: 'PAYMENT_ALREADY_PROCESSED',
+            message: 'Payment already processed',
+          });
+        }
+        throw error;
+      }
     });
     this.events.publish(`kitchen:${session.branchId}`, 'order.created', order);
     if (order.waiterId) this.events.publish(`waiter:${order.waiterId}`, 'order.assigned', order);
     this.events.publish(`session:${session.id}`, 'order.created', order);
     return order;
+  }
+
+  private isProviderReferenceConflict(error: unknown) {
+    return error instanceof PrismaClientKnownRequestError
+      && error.code === 'P2002'
+      && Array.isArray(error.meta?.target)
+      && error.meta.target.includes('providerReference');
   }
   async order(id: string, token?: string) {
     const order = await this.prisma.order.findUnique({
@@ -428,7 +442,7 @@ export class RestaurantService {
     return this.prisma.user.create({
       data: {
         ...user,
-        passwordHash: await bcrypt.hash(password, 12),
+        passwordHash: await hash(password, 12),
         assignments: branchId ? {
           create: {
             branchId,

@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '../generated/prisma/client';
 import { Request } from 'express';
 import { IS_PUBLIC_KEY, ROLES_KEY } from './auth.decorators';
 

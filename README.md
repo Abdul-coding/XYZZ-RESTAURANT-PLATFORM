@@ -14,11 +14,32 @@ Production-oriented NestJS MVP implementing the approved V1 backend architecture
 
 ```bash
 cp .env.example .env
-docker compose up -d postgres redis rabbitmq
 npm install
-npx prisma migrate dev --name init
+npm run prisma:migrate
 npm run prisma:seed
 npm run start:dev
+```
+
+### Using local Postgres (no Docker)
+
+1) Ensure Postgres is running locally and create the database:
+
+```bash
+createdb xyzz
+```
+
+2) Set `DATABASE_URL` in `.env` to match your local credentials, for example:
+
+```bash
+DATABASE_URL=postgresql://<user>:<password>@localhost:5432/xyzz?schema=public
+```
+
+If you see `PrismaClientInitializationError P1010`, it means Postgres rejected the username/password in `DATABASE_URL`.
+
+### Using Docker (Postgres/Redis/RabbitMQ)
+
+```bash
+docker compose up -d postgres redis rabbitmq
 ```
 
 Health check: `GET http://localhost:3000/api/v1/health`
