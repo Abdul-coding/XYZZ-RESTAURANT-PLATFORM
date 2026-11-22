@@ -46,6 +46,36 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum PaymentChannel {
+  ONLINE
+  PAY_AT_TABLE
+  WAITER_ASSISTED
+}
+
+enum PaymentIntentStatus {
+  PAYMENT_PENDING
+  PAYMENT_SUCCESS
+  FAILED
+  CANCELLED
+}
+
+enum CollectionMethod {
+  CASH
+  CARD
+  UPI
+}
+
+enum RefundStatus {
+  NONE
+  PARTIAL
+  FULL
+}
+
+enum CancelSource {
+  CUSTOMER
+  STAFF
+}
+
 enum WaiterStatus {
   IDLE
   ENGAGED
@@ -86,16 +116,33 @@ model User {
   lastName     String?
   email        String? @unique
   phone        String? @unique
-  passwordHash String
-  role         UserRole
-  isActive     Boolean @default(true)
+  passwordHash      String
+  temporaryPassword String?
+  role              UserRole
+  isActive          Boolean   @default(true)
+  lastLoginAt       DateTime?
   assignments  StaffAssignment[]
   orders       Order[]
+  collectedBills PaymentIntent[] @relation("BillCollector")
+  refunds      Payment[] @relation("PaymentRefundActor")
   tips         Tip[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   deletedAt    DateTime?
   @@map("users")
+}
+
+model Customer {
+  id             String @id @default(uuid())
+  phone          String? @unique
+  email          String? @unique
+  name           String?
+  sessions       DiningSession[]
+  paymentIntents PaymentIntent[]
+  orders         Order[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  @@map("customers")
 }
 
 model StaffAssignment {
@@ -135,6 +182,7 @@ model DiningSession {
   id           String @id @default(uuid())
   branchId     String
   tableId      String
+  customerId   String?
   sessionToken String @unique
   status       DiningSessionStatus @default(ACTIVE)
   startedAt    DateTime @default(now())
@@ -143,11 +191,14 @@ model DiningSession {
   totalSpend   Decimal @default(0) @db.Decimal(10, 2)
   branch       Branch @relation(fields: [branchId], references: [id])
   table        RestaurantTable @relation(fields: [tableId], references: [id])
+  customer     Customer? @relation(fields: [customerId], references: [id])
   orders       Order[]
+  paymentIntents PaymentIntent[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   @@index([tableId, status])
   @@index([sessionToken])
+  @@index([customerId])
   @@map("dining_sessions")
 }
 
@@ -250,20 +301,54 @@ model TaxConfiguration {
   @@map("tax_configurations")
 }
 
+model PaymentIntent {
+  id                 String @id @default(uuid())
+  diningSessionId    String
+  customerId         String
+  collectorWaiterId  String?
+  orderId            String? @unique
+  channel            PaymentChannel
+  collectionMethod   CollectionMethod?
+  status             PaymentIntentStatus @default(PAYMENT_PENDING)
+  provider           String?
+  providerReference  String? @unique
+  cartSnapshot       Json
+  subtotalAmount     Decimal @db.Decimal(10, 2)
+  taxPercentage      Decimal @db.Decimal(5, 2)
+  taxAmount          Decimal @db.Decimal(10, 2)
+  totalAmount        Decimal @db.Decimal(10, 2)
+  diningSession      DiningSession @relation(fields: [diningSessionId], references: [id])
+  customer           Customer @relation(fields: [customerId], references: [id])
+  collectorWaiter    User? @relation("BillCollector", fields: [collectorWaiterId], references: [id])
+  order              Order? @relation(fields: [orderId], references: [id])
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  @@index([diningSessionId, status])
+  @@index([collectorWaiterId, status])
+  @@map("payment_intents")
+}
+
 model Order {
   id                 String @id @default(uuid())
   diningSessionId    String
+  customerId         String?
   waiterId           String?
   orderNumber        String @unique
   status             OrderStatus @default(ORDER_PLACED)
+  refundStatus       RefundStatus @default(NONE)
+  refundedAmount     Decimal @default(0) @db.Decimal(10, 2)
   subtotalAmount     Decimal @db.Decimal(10, 2)
   taxPercentage      Decimal @db.Decimal(5, 2)
   taxAmount          Decimal @db.Decimal(10, 2)
   totalAmount        Decimal @db.Decimal(10, 2)
   preparingStartedAt DateTime?
   completedAt        DateTime?
+  cancelledAt        DateTime?
+  cancelSource       CancelSource?
   diningSession      DiningSession @relation(fields: [diningSessionId], references: [id])
+  customer           Customer? @relation(fields: [customerId], references: [id])
   waiter             User? @relation(fields: [waiterId], references: [id])
+  paymentIntent      PaymentIntent?
   items              OrderItem[]
   payments           Payment[]
   ratings            Rating[]
@@ -273,6 +358,7 @@ model Order {
   updatedAt          DateTime @updatedAt
   deletedAt          DateTime?
   @@index([diningSessionId])
+  @@index([customerId])
   @@index([waiterId, status])
   @@index([status, createdAt])
   @@map("orders")
@@ -318,12 +404,17 @@ model OrderItemAddon {
 model Payment {
   id                String @id @default(uuid())
   orderId           String
+  refundedByUserId  String?
   provider          String
   providerReference String @unique
   amount            Decimal @db.Decimal(10, 2)
   status            PaymentStatus
+  refundedAmount    Decimal @default(0) @db.Decimal(10, 2)
+  refundPercent     Decimal? @db.Decimal(5, 2)
   paidAt            DateTime?
+  refundedAt        DateTime?
   order             Order @relation(fields: [orderId], references: [id])
+  refundedBy        User? @relation("PaymentRefundActor", fields: [refundedByUserId], references: [id])
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   @@index([orderId, status])

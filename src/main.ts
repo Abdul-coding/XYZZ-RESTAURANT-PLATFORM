@@ -11,7 +11,14 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
   app.setGlobalPrefix('api/v1');
-  app.use(helmet());
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        // Swagger previews image responses with blob: URLs.
+        imgSrc: ["'self'", 'data:', 'blob:'],
+      },
+    },
+  }));
   app.enableCors({ origin: true, credentials: true });
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,

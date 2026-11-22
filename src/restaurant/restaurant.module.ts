@@ -5,11 +5,20 @@ import { AuditLogService } from './audit-log.service';
 import { EVENT_PUBLISHER, EVENT_STREAM_PROVIDER } from './event-publisher';
 import { InMemoryEventPublisher } from './in-memory-event-publisher';
 import { WaiterAssignmentService } from './waiter-assignment.service';
+import { CustomerService } from './customer.service';
+import { CheckoutService } from './checkout.service';
+import { SessionExpiryService } from './session-expiry.service';
+import { AdminDashboardController } from './admin-dashboard.controller';
+import { AdminDashboardService } from './admin-dashboard.service';
 
 @Module({
-  controllers: [RestaurantController],
+  controllers: [RestaurantController, AdminDashboardController],
   providers: [
     RestaurantService,
+    CustomerService,
+    CheckoutService,
+    SessionExpiryService,
+    AdminDashboardService,
     AuditLogService,
     WaiterAssignmentService,
     InMemoryEventPublisher,

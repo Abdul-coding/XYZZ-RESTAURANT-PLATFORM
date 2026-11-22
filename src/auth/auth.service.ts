@@ -18,6 +18,7 @@ export class AuthService {
     if (!user || !user.isActive || !(await compare(dto.password, user.passwordHash))) {
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Invalid credentials' });
     }
+    await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     const payload = { sub: user.id, role: user.role };
     return {
       accessToken: await this.jwt.signAsync(payload, { expiresIn: '15m' }),

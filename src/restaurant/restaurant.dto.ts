@@ -1,11 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
-  ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsEmail, IsEnum, IsInt,
-  IsNumber, IsOptional, IsString, IsUrl, IsUUID, Max, Min, MinLength,
+  ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsEmail, IsEnum, IsIn, IsInt,
+  IsDateString, IsNumber, IsOptional, IsString, IsUrl, IsUUID, Max, Min, MinLength,
   ValidateNested,
 } from 'class-validator';
-import { UserRole } from '../generated/prisma/client';
+import { CollectionMethod, OrderStatus, PaymentChannel, UserRole } from '../generated/prisma/client';
 
 export class CreateBranchDto {
   @ApiProperty({ example: 'XYZZ-DEMO', minLength: 2 })
@@ -68,6 +68,34 @@ export class AddonGroupDto {
   @ApiProperty({ type: [AddonDto] })
   @IsArray() @ValidateNested({ each: true }) @Type(() => AddonDto) addons!: AddonDto[];
 }
+export class UpdateMenuItemAvailabilityDto {
+  @ApiProperty({ example: false })
+  @IsBoolean() isAvailable!: boolean;
+}
+export class UpdateMenuItemDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID() categoryId!: string;
+
+  @ApiProperty({ example: 'Chicken Burger' })
+  @IsString() name!: string;
+
+  @ApiPropertyOptional({ example: 'Grilled chicken patty with house sauce' })
+  @IsOptional() @IsString() description?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/images/chicken-burger.jpg' })
+  @IsOptional() @IsUrl() imageUrl?: string;
+
+  @ApiProperty({ example: 120, minimum: 0 })
+  @IsNumber() @Min(0) basePrice!: number;
+
+  @ApiPropertyOptional({ type: [VariantDto] })
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => VariantDto)
+  variants?: VariantDto[];
+
+  @ApiPropertyOptional({ type: [AddonGroupDto] })
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => AddonGroupDto)
+  addonGroups?: AddonGroupDto[];
+}
 export class CreateMenuItemDto {
   @ApiProperty({ format: 'uuid' })
   @IsUUID() branchId!: string;
@@ -115,6 +143,50 @@ export class CalculateCartDto {
   @ApiProperty({ type: [CartItemDto], minItems: 1, maxItems: 50 })
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50)
   @ValidateNested({ each: true }) @Type(() => CartItemDto) items!: CartItemDto[];
+}
+export class IdentifyCustomerDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID() diningSessionId!: string;
+
+  @ApiPropertyOptional({ example: '+919876543210' })
+  @IsOptional() @IsString() phone?: string;
+
+  @ApiPropertyOptional({ example: 'alex@xyzz.com' })
+  @IsOptional() @IsEmail() email?: string;
+
+  @ApiPropertyOptional({ example: 'Alex' })
+  @IsOptional() @IsString() name?: string;
+}
+export class CreatePaymentIntentDto extends CalculateCartDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID() diningSessionId!: string;
+
+  @ApiProperty({ enum: PaymentChannel, example: PaymentChannel.PAY_AT_TABLE })
+  @IsEnum(PaymentChannel) channel!: PaymentChannel;
+}
+export class ConfirmPaymentIntentDto {
+  @ApiProperty({ example: 'demo_pay_abc123', minLength: 4 })
+  @IsString() @MinLength(4) paymentReference!: string;
+}
+export class CollectBillDto {
+  @ApiProperty({ enum: CollectionMethod, example: CollectionMethod.CASH })
+  @IsEnum(CollectionMethod) method!: CollectionMethod;
+}
+export class AssistedOrderDto extends CalculateCartDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID() tableId!: string;
+
+  @ApiPropertyOptional({ example: '+919876543210' })
+  @IsOptional() @IsString() phone?: string;
+
+  @ApiPropertyOptional({ example: 'alex@xyzz.com' })
+  @IsOptional() @IsEmail() email?: string;
+
+  @ApiPropertyOptional({ example: 'Alex' })
+  @IsOptional() @IsString() name?: string;
+
+  @ApiProperty({ enum: CollectionMethod, example: CollectionMethod.CASH })
+  @IsEnum(CollectionMethod) method!: CollectionMethod;
 }
 export class CreateOrderDto extends CalculateCartDto {
   @ApiProperty({ format: 'uuid' })
@@ -171,4 +243,70 @@ export class CreateUserDto {
 
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional() @IsUUID() branchId?: string;
+}
+
+export const STAFF_CANCEL_REASONS = [
+  'Customer changed mind',
+  'Item unavailable',
+  'Kitchen issue',
+  'Wrong order',
+  'Duplicate order',
+  'Other',
+] as const;
+
+export class CancelOrderDto {
+  @ApiProperty({ enum: STAFF_CANCEL_REASONS, example: 'Customer changed mind' })
+  @IsIn(STAFF_CANCEL_REASONS)
+  reason!: (typeof STAFF_CANCEL_REASONS)[number];
+
+  @ApiPropertyOptional({ example: 'Guest left before the food was served' })
+  @IsOptional() @IsString() note?: string;
+}
+
+export class UpdateStaffStatusDto {
+  @ApiProperty({ example: false })
+  @IsBoolean() isActive!: boolean;
+}
+
+export class UpdateWaiterAssignmentDto {
+  @ApiProperty({ enum: ['IDLE', 'OFFLINE'], description: 'IDLE marks the waiter available. OFFLINE takes them off the floor.' })
+  @IsIn(['IDLE', 'OFFLINE'])
+  waiterStatus!: 'IDLE' | 'OFFLINE';
+}
+
+export class ListOrdersQueryDto {
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional() @IsUUID() branchId?: string;
+
+  @ApiPropertyOptional({ example: '2026-10-17T00:00:00.000Z' })
+  @IsOptional() @IsDateString() from?: string;
+
+  @ApiPropertyOptional({ example: '2026-10-17T23:59:59.999Z' })
+  @IsOptional() @IsDateString() to?: string;
+
+  @ApiPropertyOptional({ enum: OrderStatus })
+  @IsOptional() @IsEnum(OrderStatus) status?: OrderStatus;
+
+  @ApiPropertyOptional({ example: 1, minimum: 1, default: 1 })
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
+
+  @ApiPropertyOptional({ example: 25, minimum: 1, maximum: 100, default: 25 })
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) size?: number;
+
+  @ApiPropertyOptional({ example: true, description: 'Only orders with a partial or full refund.' })
+  @IsOptional() @Transform(({ value }) => value === true || value === 'true') @IsBoolean() refunded?: boolean;
+
+  @ApiPropertyOptional({ example: true, description: 'Only orders with an open complaint.' })
+  @IsOptional() @Transform(({ value }) => value === true || value === 'true') @IsBoolean() hasComplaint?: boolean;
+}
+
+export class ListStaffQueryDto {
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional() @IsUUID() branchId?: string;
+
+  @ApiPropertyOptional({ enum: UserRole })
+  @IsOptional() @IsEnum(UserRole) role?: UserRole;
+
+  @ApiPropertyOptional({ enum: ['active', 'inactive'] })
+  @IsOptional() @IsIn(['active', 'inactive']) status?: 'active' | 'inactive';
 }

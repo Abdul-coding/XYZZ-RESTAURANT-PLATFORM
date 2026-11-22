@@ -37,6 +37,32 @@ export class WaiterAssignmentService {
     });
   }
 
+  async assignSpecificWaiter(
+    userId: string,
+    branchId: string,
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<StaffAssignment> {
+    const [assignment] = await tx.$queryRaw<StaffAssignment[]>`
+      SELECT *
+      FROM staff_assignments
+      WHERE "userId" = ${userId}
+        AND "branchId" = ${branchId}
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    `;
+    if (!assignment) {
+      throw new Error('Waiter is not assigned to this branch');
+    }
+    return tx.staffAssignment.update({
+      where: { id: assignment.id },
+      data: {
+        activeOrders: { increment: 1 },
+        waiterStatus: WaiterStatus.ENGAGED,
+        lastAssignedAt: new Date(),
+      },
+    });
+  }
+
   async releaseWaiter(
     userId: string,
     branchId: string,
